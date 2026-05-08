@@ -1,0 +1,740 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Command Center — Mavuno ERP</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+<style>
+  * { font-family: 'Inter', sans-serif; }
+  :root {
+    --sidebar-w: 240px;
+    --green: #16a34a;
+    --green-light: #dcfce7;
+    --green-dark: #15803d;
+    --amber: #d97706;
+    --red: #dc2626;
+    --slate-50: #f8fafc;
+    --slate-100: #f1f5f9;
+    --slate-200: #e2e8f0;
+    --slate-500: #64748b;
+    --slate-700: #334155;
+    --slate-900: #0f172a;
+  }
+  body { background: var(--slate-50); color: var(--slate-900); }
+
+  /* Sidebar */
+  #sidebar {
+    width: var(--sidebar-w);
+    min-height: 100vh;
+    background: #fff;
+    border-right: 1px solid var(--slate-200);
+    position: fixed;
+    top: 0; left: 0;
+    z-index: 40;
+    display: flex;
+    flex-direction: column;
+    transition: transform 0.25s ease;
+  }
+  #sidebar.collapsed { transform: translateX(-100%); }
+  #main-content { margin-left: var(--sidebar-w); transition: margin-left 0.25s ease; }
+  #main-content.full { margin-left: 0; }
+
+  .nav-link {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 14px; border-radius: 6px;
+    font-size: 14px; font-weight: 500;
+    color: var(--slate-700);
+    text-decoration: none;
+    transition: background 0.15s;
+    cursor: pointer;
+  }
+  .nav-link:hover { background: var(--slate-100); }
+  .nav-link.active { background: var(--green-light); color: var(--green-dark); }
+  .nav-link svg { flex-shrink: 0; }
+
+  /* Cards */
+  .card {
+    background: #fff;
+    border: 1px solid var(--slate-200);
+    border-radius: 12px;
+    padding: 20px;
+    box-shadow: 0 1px 3px rgba(0,0,0,.04);
+  }
+
+  /* KPI badges */
+  .badge-up { background: #dcfce7; color: #15803d; font-size: 11px; font-weight: 600; padding: 2px 7px; border-radius: 20px; }
+  .badge-down { background: #fee2e2; color: #dc2626; font-size: 11px; font-weight: 600; padding: 2px 7px; border-radius: 20px; }
+  .badge-neutral { background: var(--slate-100); color: var(--slate-500); font-size: 11px; font-weight: 600; padding: 2px 7px; border-radius: 20px; }
+
+  /* Status pills */
+  .pill-active { background: #dcfce7; color: #15803d; font-size: 11px; font-weight: 600; padding: 3px 9px; border-radius: 20px; }
+  .pill-delayed { background: #fef3c7; color: #b45309; font-size: 11px; font-weight: 600; padding: 3px 9px; border-radius: 20px; }
+  .pill-scheduled { background: #dbeafe; color: #1d4ed8; font-size: 11px; font-weight: 600; padding: 3px 9px; border-radius: 20px; }
+  .pill-running { background: #dcfce7; color: #15803d; font-size: 11px; font-weight: 600; padding: 3px 9px; border-radius: 20px; }
+  .pill-critical { background: #fee2e2; color: #dc2626; font-size: 11px; font-weight: 600; padding: 3px 9px; border-radius: 20px; }
+  .pill-low { background: #fef3c7; color: #b45309; font-size: 11px; font-weight: 600; padding: 3px 9px; border-radius: 20px; }
+
+  /* Progress bars */
+  .progress-bar { height: 6px; background: var(--slate-100); border-radius: 99px; overflow: hidden; }
+  .progress-fill { height: 100%; border-radius: 99px; }
+
+  /* Overlay */
+  #overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.3); z-index: 30; }
+  #overlay.show { display: block; }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar { width: 5px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--slate-200); border-radius: 3px; }
+
+  @media (max-width: 768px) {
+    #sidebar { transform: translateX(-100%); }
+    #sidebar.open { transform: translateX(0); }
+    #main-content { margin-left: 0 !important; }
+  }
+
+  /* Donut center text */
+  .chart-donut-wrap { position: relative; }
+  .chart-donut-wrap .donut-label {
+    position: absolute; top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    text-align: center; pointer-events: none;
+  }
+
+  /* Pulse dot */
+  .pulse-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--green);
+    box-shadow: 0 0 0 0 rgba(22,163,74,.5);
+    animation: pulse 1.8s infinite;
+  }
+  @keyframes pulse {
+    0% { box-shadow: 0 0 0 0 rgba(22,163,74,.5); }
+    70% { box-shadow: 0 0 0 6px rgba(22,163,74,0); }
+    100% { box-shadow: 0 0 0 0 rgba(22,163,74,0); }
+  }
+</style>
+</head>
+<body class="antialiased">
+
+<!-- Overlay for mobile sidebar -->
+<div id="overlay" onclick="toggleSidebar()"></div>
+
+<!-- ========== SIDEBAR ========== -->
+<aside id="sidebar">
+  <div class="p-4 border-b border-slate-100 flex items-center gap-3">
+    <!-- Logo -->
+    <div class="w-8 h-8 rounded-lg flex items-center justify-center" style="background: linear-gradient(135deg,#16a34a,#15803d);">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2z"/><path d="M8 12s1-3 4-3 4 3 4 3"/><path d="M12 9v6"/></svg>
+    </div>
+    <div>
+      <div class="text-sm font-700 text-slate-900 leading-tight font-semibold">Mavuno ERP</div>
+      <div class="text-xs text-slate-500">Avocado processing co.</div>
+    </div>
+  </div>
+
+  <div class="flex-1 overflow-y-auto p-3">
+    <div class="mb-1">
+      <p class="text-xs font-semibold text-slate-400 uppercase tracking-wider px-3 py-2">Operations</p>
+      <a href="#" class="nav-link active" onclick="setActive(this)">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+        Dashboard
+      </a>
+      <a href="#" class="nav-link" onclick="setActive(this)">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/></svg>
+        Production
+      </a>
+      <a href="#" class="nav-link" onclick="setActive(this)">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2L3 6v14a2 2 0 002 2h14a2 2 0 002-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 01-8 0"/></svg>
+        Procurement
+      </a>
+      <a href="#" class="nav-link" onclick="setActive(this)">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z"/></svg>
+        Inventory
+      </a>
+      <a href="#" class="nav-link" onclick="setActive(this)">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="2"/></svg>
+        Orders
+      </a>
+    </div>
+
+    <div class="mt-4">
+      <p class="text-xs font-semibold text-slate-400 uppercase tracking-wider px-3 py-2">Support</p>
+      <a href="#" class="nav-link" onclick="setActive(this)">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="3" width="15" height="13"/><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>
+        Logistics &amp; Gate
+      </a>
+      <a href="#" class="nav-link" onclick="setActive(this)">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+        Quality Control
+      </a>
+      <a href="#" class="nav-link" onclick="setActive(this)">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/></svg>
+        Maintenance
+      </a>
+      <a href="#" class="nav-link" onclick="setActive(this)">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+        Reports
+      </a>
+      <a href="#" class="nav-link" onclick="setActive(this)">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>
+        Users &amp; Roles
+      </a>
+    </div>
+  </div>
+
+  <!-- User profile -->
+  <div class="p-3 border-t border-slate-100">
+    <div class="flex items-center gap-3 px-2 py-2 rounded-lg hover:bg-slate-50 cursor-pointer">
+      <div class="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-semibold" style="background: linear-gradient(135deg,#16a34a,#15803d);">JM</div>
+      <div class="flex-1 min-w-0">
+        <div class="text-sm font-medium text-slate-900 truncate">Joyce Mwangi</div>
+        <div class="text-xs text-slate-500">Plant Manager</div>
+      </div>
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+    </div>
+  </div>
+</aside>
+
+<!-- ========== MAIN CONTENT ========== -->
+<div id="main-content" class="min-h-screen">
+  <!-- Top bar -->
+  <header class="sticky top-0 z-20 bg-white border-b border-slate-200 px-5 py-3 flex items-center justify-between" style="backdrop-filter: blur(8px);">
+    <div class="flex items-center gap-3">
+      <button id="sidebar-toggle" onclick="toggleSidebar()" class="p-2 rounded-lg hover:bg-slate-100 transition-colors lg:hidden">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+      </button>
+      <button onclick="toggleSidebar()" class="p-2 rounded-lg hover:bg-slate-100 transition-colors hidden lg:flex items-center gap-2 text-sm text-slate-500">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="9" y1="3" x2="9" y2="21"/></svg>
+        Toggle Sidebar
+      </button>
+    </div>
+    <div class="flex items-center gap-2">
+      <div class="flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold" style="background:#dcfce7;color:#15803d;">
+        <div class="pulse-dot"></div>
+        Plant online
+      </div>
+    </div>
+  </header>
+
+  <!-- Page content -->
+  <main class="p-5 md:p-7 max-w-7xl mx-auto">
+
+    <!-- Page header -->
+    <div class="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 mb-7">
+      <div>
+        <h1 class="text-2xl font-bold text-slate-900 mb-1">Command center</h1>
+        <p class="text-sm text-slate-500">Friday, May 8 · Shift A · Murang'a processing plant</p>
+      </div>
+      <div class="flex items-center gap-2">
+        <button class="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 transition-colors">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          Export day report
+        </button>
+        <button class="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-white transition-colors" style="background:#16a34a;" onmouseover="this.style.background='#15803d'" onmouseout="this.style.background='#16a34a'">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+          Open production floor
+        </button>
+      </div>
+    </div>
+
+    <!-- KPI Cards -->
+    <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+      <!-- Today's intake -->
+      <div class="card">
+        <div class="flex items-start justify-between mb-3">
+          <p class="text-xs font-medium text-slate-500 uppercase tracking-wide">Today's intake</p>
+          <div class="w-8 h-8 rounded-lg flex items-center justify-center" style="background:#f0fdf4;">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#16a34a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a10 10 0 1010 10"/><path d="M12 2v10l7-3"/></svg>
+          </div>
+        </div>
+        <div class="text-2xl font-bold text-slate-900 mb-1">18.4t</div>
+        <div class="flex items-center gap-1.5">
+          <span class="badge-up">↑ +12.4%</span>
+          <span class="text-xs text-slate-400">vs yesterday</span>
+        </div>
+      </div>
+
+      <!-- Oil yield -->
+      <div class="card">
+        <div class="flex items-start justify-between mb-3">
+          <p class="text-xs font-medium text-slate-500 uppercase tracking-wide">Oil yield</p>
+          <div class="w-8 h-8 rounded-lg flex items-center justify-center" style="background:#fefce8;">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#ca8a04" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v6l3-3"/><path d="M12 22c-4.4 0-8-3.6-8-8 0-3.1 1.8-5.9 4.5-7.3"/><path d="M20 14c0 4.4-3.6 8-8 8"/><path d="M20 14c0-2-.8-3.9-2.1-5.3"/></svg>
+          </div>
+        </div>
+        <div class="text-2xl font-bold text-slate-900 mb-1">18.6%</div>
+        <div class="flex items-center gap-1.5">
+          <span class="badge-up">↑ +0.8%</span>
+          <span class="text-xs text-slate-400">vs last shift</span>
+        </div>
+      </div>
+
+      <!-- Active batches -->
+      <div class="card">
+        <div class="flex items-start justify-between mb-3">
+          <p class="text-xs font-medium text-slate-500 uppercase tracking-wide">Active batches</p>
+          <div class="w-8 h-8 rounded-lg flex items-center justify-center" style="background:#f0fdf4;">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#16a34a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/></svg>
+          </div>
+        </div>
+        <div class="text-2xl font-bold text-slate-900 mb-1">9</div>
+        <div class="flex items-center gap-1.5">
+          <span class="badge-neutral">On floor now</span>
+        </div>
+      </div>
+
+      <!-- Open sales orders -->
+      <div class="card">
+        <div class="flex items-start justify-between mb-3">
+          <p class="text-xs font-medium text-slate-500 uppercase tracking-wide">Open sales orders</p>
+          <div class="w-8 h-8 rounded-lg flex items-center justify-center" style="background:#eff6ff;">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="2"/></svg>
+          </div>
+        </div>
+        <div class="text-2xl font-bold text-slate-900 mb-1">47</div>
+        <div class="flex items-center gap-1.5">
+          <span class="badge-neutral">This month</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Charts Row -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-5 mb-5">
+      <!-- Intake vs Processed -->
+      <div class="card">
+        <div class="flex items-start justify-between mb-1">
+          <div>
+            <h3 class="text-sm font-semibold text-slate-900">Intake vs processed</h3>
+            <p class="text-xs text-slate-500 mt-0.5">Last 7 days, kilograms</p>
+          </div>
+          <span class="text-xs font-medium px-2 py-1 rounded-md bg-slate-100 text-slate-600">This week</span>
+        </div>
+        <div class="mt-4" style="height:200px;">
+          <canvas id="intakeChart"></canvas>
+        </div>
+        <div class="flex items-center gap-4 mt-3">
+          <div class="flex items-center gap-1.5"><span class="w-3 h-3 rounded-sm inline-block" style="background:#16a34a;"></span><span class="text-xs text-slate-500">Intake</span></div>
+          <div class="flex items-center gap-1.5"><span class="w-3 h-3 rounded-sm inline-block" style="background:#86efac;"></span><span class="text-xs text-slate-500">Processed</span></div>
+        </div>
+      </div>
+
+      <!-- Yield Trend -->
+      <div class="card">
+        <div class="flex items-start justify-between mb-1">
+          <div>
+            <h3 class="text-sm font-semibold text-slate-900">Yield trend</h3>
+            <p class="text-xs text-slate-500 mt-0.5">Weekly oil extraction %</p>
+          </div>
+        </div>
+        <div class="mt-4" style="height:200px;">
+          <canvas id="yieldChart"></canvas>
+        </div>
+      </div>
+    </div>
+
+    <!-- Middle Row -->
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 mb-5">
+
+      <!-- Active Batches -->
+      <div class="card">
+        <div class="flex items-center justify-between mb-4">
+          <h3 class="text-sm font-semibold text-slate-900">Active batches</h3>
+          <a href="#" class="text-xs font-medium text-green-700 hover:underline">View all →</a>
+        </div>
+        <p class="text-xs text-slate-400 mb-3">On the floor right now</p>
+
+        <div class="space-y-3">
+          <div class="flex items-center justify-between p-3 rounded-lg border border-slate-100 hover:bg-slate-50 cursor-pointer transition-colors">
+            <div>
+              <div class="flex items-center gap-2 mb-1">
+                <span class="text-sm font-semibold text-slate-900">BTH-2418</span>
+                <span class="pill-running">running</span>
+              </div>
+              <div class="text-xs text-slate-500">Hass · T-04 · shift A</div>
+            </div>
+            <div class="text-right">
+              <div class="text-sm font-bold text-green-700">19.1%</div>
+              <div class="text-xs text-slate-400">yield</div>
+            </div>
+          </div>
+
+          <div class="flex items-center justify-between p-3 rounded-lg border border-slate-100 hover:bg-slate-50 cursor-pointer transition-colors">
+            <div>
+              <div class="flex items-center gap-2 mb-1">
+                <span class="text-sm font-semibold text-slate-900">BTH-2417</span>
+                <span class="pill-running">running</span>
+              </div>
+              <div class="text-xs text-slate-500">Fuerte · T-02 · shift A</div>
+            </div>
+            <div class="text-right">
+              <div class="text-sm font-bold text-green-700">17.4%</div>
+              <div class="text-xs text-slate-400">yield</div>
+            </div>
+          </div>
+
+          <div class="flex items-center justify-between p-3 rounded-lg border border-slate-100 hover:bg-slate-50 cursor-pointer transition-colors">
+            <div>
+              <div class="flex items-center gap-2 mb-1">
+                <span class="text-sm font-semibold text-slate-900">BTH-2416</span>
+                <span class="pill-running">running</span>
+              </div>
+              <div class="text-xs text-slate-500">Hass · T-01 · shift A</div>
+            </div>
+            <div class="text-right">
+              <div class="text-sm font-bold text-green-700">18.2%</div>
+              <div class="text-xs text-slate-400">yield</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Sales Channel Mix -->
+      <div class="card">
+        <div class="flex items-start justify-between mb-4">
+          <div>
+            <h3 class="text-sm font-semibold text-slate-900">Sales channel mix</h3>
+            <p class="text-xs text-slate-500 mt-0.5">Month-to-date revenue</p>
+          </div>
+        </div>
+        <div class="flex justify-center" style="height:160px; position: relative;">
+          <canvas id="donutChart"></canvas>
+        </div>
+        <div class="grid grid-cols-2 gap-2 mt-4">
+          <div class="flex items-center gap-2">
+            <span class="w-2.5 h-2.5 rounded-full flex-shrink-0" style="background:#16a34a;"></span>
+            <span class="text-xs text-slate-600">Export</span>
+            <span class="text-xs font-semibold text-slate-900 ml-auto">42%</span>
+          </div>
+          <div class="flex items-center gap-2">
+            <span class="w-2.5 h-2.5 rounded-full flex-shrink-0" style="background:#4ade80;"></span>
+            <span class="text-xs text-slate-600">Retail</span>
+            <span class="text-xs font-semibold text-slate-900 ml-auto">28%</span>
+          </div>
+          <div class="flex items-center gap-2">
+            <span class="w-2.5 h-2.5 rounded-full flex-shrink-0" style="background:#86efac;"></span>
+            <span class="text-xs text-slate-600">B2B</span>
+            <span class="text-xs font-semibold text-slate-900 ml-auto">18%</span>
+          </div>
+          <div class="flex items-center gap-2">
+            <span class="w-2.5 h-2.5 rounded-full flex-shrink-0" style="background:#bbf7d0;"></span>
+            <span class="text-xs text-slate-600">Direct</span>
+            <span class="text-xs font-semibold text-slate-900 ml-auto">12%</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Plant Health -->
+      <div class="card">
+        <div class="flex items-start justify-between mb-4">
+          <div>
+            <h3 class="text-sm font-semibold text-slate-900">Plant health</h3>
+            <p class="text-xs text-slate-500 mt-0.5">Current shift</p>
+          </div>
+        </div>
+
+        <div class="space-y-4">
+          <div>
+            <div class="flex items-center justify-between mb-1.5">
+              <span class="text-xs font-medium text-slate-600">OEE</span>
+              <span class="text-sm font-bold text-slate-900">82.4%</span>
+            </div>
+            <div class="progress-bar">
+              <div class="progress-fill" style="width:82.4%;background:#16a34a;"></div>
+            </div>
+          </div>
+
+          <div>
+            <div class="flex items-center justify-between mb-1.5">
+              <span class="text-xs font-medium text-slate-600">Uptime</span>
+              <span class="text-sm font-bold text-slate-900">92.4%</span>
+            </div>
+            <div class="progress-bar">
+              <div class="progress-fill" style="width:92.4%;background:#16a34a;"></div>
+            </div>
+          </div>
+
+          <div>
+            <div class="flex items-center justify-between mb-1.5">
+              <span class="text-xs font-medium text-slate-600">Quality pass</span>
+              <span class="text-sm font-bold text-slate-900">96.1%</span>
+            </div>
+            <div class="progress-bar">
+              <div class="progress-fill" style="width:96.1%;background:#16a34a;"></div>
+            </div>
+          </div>
+
+          <div class="pt-2 border-t border-slate-100">
+            <div class="grid grid-cols-3 gap-2 text-center">
+              <div>
+                <div class="text-lg font-bold" style="color:#16a34a;">82.4%</div>
+                <div class="text-xs text-slate-400">OEE</div>
+              </div>
+              <div>
+                <div class="text-lg font-bold" style="color:#16a34a;">92.4%</div>
+                <div class="text-xs text-slate-400">Uptime</div>
+              </div>
+              <div>
+                <div class="text-lg font-bold" style="color:#16a34a;">96.1%</div>
+                <div class="text-xs text-slate-400">Quality</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Bottom Row -->
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
+
+      <!-- Inbound Shipments -->
+      <div class="card">
+        <div class="flex items-center justify-between mb-4">
+          <h3 class="text-sm font-semibold text-slate-900">Inbound shipments</h3>
+          <a href="#" class="text-xs font-medium text-green-700 hover:underline">All →</a>
+        </div>
+
+        <div class="space-y-3">
+          <div class="flex items-center justify-between p-3 rounded-lg border border-slate-100 hover:bg-slate-50 transition-colors">
+            <div class="flex items-center gap-3">
+              <div class="w-8 h-8 rounded-md flex items-center justify-center text-xs font-bold text-white" style="background:#16a34a;">S</div>
+              <div>
+                <div class="text-sm font-semibold text-slate-900">SHP-8821</div>
+                <div class="text-xs text-slate-500">8,400 kg Hass</div>
+              </div>
+            </div>
+            <span class="pill-active">active</span>
+          </div>
+
+          <div class="flex items-center justify-between p-3 rounded-lg border border-slate-100 hover:bg-slate-50 transition-colors">
+            <div class="flex items-center gap-3">
+              <div class="w-8 h-8 rounded-md flex items-center justify-center text-xs font-bold text-white" style="background:#d97706;">S</div>
+              <div>
+                <div class="text-sm font-semibold text-slate-900">SHP-8820</div>
+                <div class="text-xs text-slate-500">5,200 kg Fuerte</div>
+              </div>
+            </div>
+            <span class="pill-delayed">delayed</span>
+          </div>
+
+          <div class="flex items-center justify-between p-3 rounded-lg border border-slate-100 hover:bg-slate-50 transition-colors">
+            <div class="flex items-center gap-3">
+              <div class="w-8 h-8 rounded-md flex items-center justify-center text-xs font-bold text-white" style="background:#2563eb;">S</div>
+              <div>
+                <div class="text-sm font-semibold text-slate-900">SHP-8819</div>
+                <div class="text-xs text-slate-500">12 pallets refined</div>
+              </div>
+            </div>
+            <span class="pill-scheduled">scheduled</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Stock Alerts -->
+      <div class="card">
+        <div class="flex items-center justify-between mb-4">
+          <h3 class="text-sm font-semibold text-slate-900">Stock alerts</h3>
+          <a href="#" class="text-xs font-medium text-green-700 hover:underline">Inventory →</a>
+        </div>
+
+        <div class="space-y-3">
+          <div class="p-3 rounded-lg border border-red-100 bg-red-50">
+            <div class="flex items-start justify-between">
+              <div>
+                <div class="flex items-center gap-2 mb-0.5">
+                  <span class="text-sm font-semibold text-slate-900">Fuerte — Grade A</span>
+                  <span class="pill-critical">critical</span>
+                </div>
+                <div class="text-xs text-slate-500">540 kg · below critical</div>
+              </div>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#dc2626" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+            </div>
+            <div class="mt-2 progress-bar">
+              <div class="progress-fill" style="width:15%;background:#dc2626;"></div>
+            </div>
+          </div>
+
+          <div class="p-3 rounded-lg border border-amber-100 bg-amber-50">
+            <div class="flex items-start justify-between">
+              <div>
+                <div class="flex items-center gap-2 mb-0.5">
+                  <span class="text-sm font-semibold text-slate-900">Hass — Grade B</span>
+                  <span class="pill-low">low</span>
+                </div>
+                <div class="text-xs text-slate-500">3,200 kg · low</div>
+              </div>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#d97706" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+            </div>
+            <div class="mt-2 progress-bar">
+              <div class="progress-fill" style="width:34%;background:#d97706;"></div>
+            </div>
+          </div>
+
+          <div class="p-3 rounded-lg border border-amber-100 bg-amber-50">
+            <div class="flex items-start justify-between">
+              <div>
+                <div class="flex items-center gap-2 mb-0.5">
+                  <span class="text-sm font-semibold text-slate-900">Export label v3</span>
+                  <span class="pill-low">low</span>
+                </div>
+                <div class="text-xs text-slate-500">1,100 pcs · low</div>
+              </div>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#d97706" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+            </div>
+            <div class="mt-2 progress-bar">
+              <div class="progress-fill" style="width:28%;background:#d97706;"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Footer -->
+    <div class="mt-8 text-center text-xs text-slate-400 pb-4">
+      Mavuno ERP · Avocado processing co. · Murang'a processing plant
+    </div>
+
+  </main>
+</div>
+
+<script>
+  // Sidebar toggle
+  let sidebarOpen = true;
+  function toggleSidebar() {
+    const sidebar = document.getElementById('sidebar');
+    const main = document.getElementById('main-content');
+    const overlay = document.getElementById('overlay');
+    const isMobile = window.innerWidth < 768;
+
+    if (isMobile) {
+      sidebar.classList.toggle('open');
+      overlay.classList.toggle('show', sidebar.classList.contains('open'));
+    } else {
+      sidebarOpen = !sidebarOpen;
+      sidebar.classList.toggle('collapsed', !sidebarOpen);
+      main.style.marginLeft = sidebarOpen ? 'var(--sidebar-w)' : '0';
+    }
+  }
+
+  function setActive(el) {
+    document.querySelectorAll('.nav-link').forEach(l => l.classList.remove('active'));
+    el.classList.add('active');
+  }
+
+  // ---- Charts ----
+
+  // Intake vs Processed Bar Chart
+  const intakeCtx = document.getElementById('intakeChart').getContext('2d');
+  new Chart(intakeCtx, {
+    type: 'bar',
+    data: {
+      labels: ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'],
+      datasets: [
+        {
+          label: 'Intake',
+          data: [16200, 15800, 17400, 14900, 18400, 16800, 13200],
+          backgroundColor: '#16a34a',
+          borderRadius: 4,
+          barPercentage: 0.6,
+          categoryPercentage: 0.7
+        },
+        {
+          label: 'Processed',
+          data: [14800, 14200, 16100, 13900, 17100, 15600, 11900],
+          backgroundColor: '#86efac',
+          borderRadius: 4,
+          barPercentage: 0.6,
+          categoryPercentage: 0.7
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { display: false }, tooltip: { mode: 'index' } },
+      scales: {
+        x: { grid: { display: false }, ticks: { font: { size: 11 }, color: '#94a3b8' } },
+        y: { grid: { color: '#f1f5f9' }, ticks: { font: { size: 11 }, color: '#94a3b8', callback: v => (v/1000)+'t' } }
+      }
+    }
+  });
+
+  // Yield Trend Line Chart
+  const yieldCtx = document.getElementById('yieldChart').getContext('2d');
+  new Chart(yieldCtx, {
+    type: 'line',
+    data: {
+      labels: ['W1','W2','W3','W4','W5','W6','W7','W8'],
+      datasets: [{
+        label: 'Oil yield %',
+        data: [17.2, 17.8, 18.1, 17.6, 18.4, 18.0, 18.6, 18.8],
+        borderColor: '#16a34a',
+        backgroundColor: 'rgba(22,163,74,0.08)',
+        fill: true,
+        tension: 0.4,
+        pointBackgroundColor: '#16a34a',
+        pointRadius: 4,
+        pointHoverRadius: 6,
+        borderWidth: 2
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { grid: { display: false }, ticks: { font: { size: 11 }, color: '#94a3b8' } },
+        y: {
+          grid: { color: '#f1f5f9' },
+          ticks: { font: { size: 11 }, color: '#94a3b8', callback: v => v + '%' },
+          min: 16, max: 20
+        }
+      }
+    }
+  });
+
+  // Sales Channel Donut
+  const donutCtx = document.getElementById('donutChart').getContext('2d');
+  new Chart(donutCtx, {
+    type: 'doughnut',
+    data: {
+      labels: ['Export','Retail','B2B','Direct'],
+      datasets: [{
+        data: [42, 28, 18, 12],
+        backgroundColor: ['#16a34a','#4ade80','#86efac','#bbf7d0'],
+        borderWidth: 2,
+        borderColor: '#fff',
+        hoverOffset: 4
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      cutout: '68%',
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: { label: ctx => ctx.label + ': ' + ctx.parsed + '%' }
+        }
+      }
+    }
+  });
+
+  // Handle window resize
+  window.addEventListener('resize', () => {
+    const sidebar = document.getElementById('sidebar');
+    const overlay = document.getElementById('overlay');
+    if (window.innerWidth >= 768) {
+      sidebar.classList.remove('open');
+      overlay.classList.remove('show');
+      if (sidebarOpen) {
+        document.getElementById('main-content').style.marginLeft = 'var(--sidebar-w)';
+      }
+    }
+  });
+</script>
+</body>
+</html>
